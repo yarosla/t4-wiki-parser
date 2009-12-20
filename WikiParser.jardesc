@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="WINDOWS-1251" standalone="no"?>
+<jardesc>
+    <jar path="C:/SS/WDev/scripts/eclipse/WikiParser/WikiParser.jar"/>
+    <options buildIfNeeded="true" compress="true" descriptionLocation="/WikiParser/WikiParser.jardesc" exportErrors="false" exportWarnings="false" includeDirectoryEntries="false" overwrite="true" saveDescription="true" storeRefactorings="false" useSourceFolders="false"/>
+    <storedRefactorings deprecationInfo="true" structuralOnly="false"/>
+    <selectedProjects/>
+    <manifest generateManifest="true" mainClassHandleIdentifier="=WikiParser/src&lt;ys.wikiparser.demo{WikiParserDemo.java[WikiParserDemo" manifestLocation="" manifestVersion="1.0" reuseManifest="false" saveManifest="false" usesManifest="true">
+        <sealing sealJar="false">
+            <packagesToSeal/>
+            <packagesToUnSeal/>
+        </sealing>
+    </manifest>
+    <selectedElements exportClassFiles="true" exportJavaFiles="true" exportOutputFolder="false">
+        <javaElement handleIdentifier="=WikiParser/src"/>
+    </selectedElements>
+</jardesc>
