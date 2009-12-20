@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="WINDOWS-1251" standalone="no"?>
 <jardesc>
-    <jar path="C:/SS/WDev/scripts/eclipse/WikiParser/WikiParser.jar"/>
+    <jar path="WikiParser/WikiParser.jar"/>
     <options buildIfNeeded="true" compress="true" descriptionLocation="/WikiParser/WikiParser.jardesc" exportErrors="false" exportWarnings="false" includeDirectoryEntries="false" overwrite="true" saveDescription="true" storeRefactorings="false" useSourceFolders="false"/>
     <storedRefactorings deprecationInfo="true" structuralOnly="false"/>
     <selectedProjects/>

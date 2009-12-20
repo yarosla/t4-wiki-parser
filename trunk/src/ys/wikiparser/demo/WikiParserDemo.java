@@ -51,7 +51,9 @@ public class WikiParserDemo {
    */
   private static class DemoParser extends WikiParser {
     public DemoParser(String wikiText) {
-      super(wikiText);
+      super();
+      HEADING_LEVEL_SHIFT=0;
+      parse(wikiText);
     }
 
     public static String renderXHTML(String wikiText) {
@@ -87,7 +89,10 @@ public class WikiParserDemo {
     @Override
     protected void appendMacro(String text) {
       if ("TOC".equals(text)) {
-        sb.append("{{ My table of contents }}");
+        super.appendMacro(text); // use default
+      }
+      else if ("My-macro".equals(text)) {
+        sb.append("{{ My macro output }}");
       }
       else {
         super.appendMacro(text);
@@ -174,7 +179,7 @@ public class WikiParserDemo {
       +"<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\">"
       +"<html xmlns=\"http://www.w3.org/1999/xhtml\">"
       +"<head><title>WikiParser</title>"
-      +"<style type=\"text/css\">div.indent{margin-left:20px;} span.underline{text-decoration:underline;}</style>"
+      +"<style type=\"text/css\">div.indent{margin-left:20px;} div.center{text-align:center;} blockquote{margin-left:20px;background-color:#e0e0e0;} span.underline{text-decoration:underline;}</style>"
       +"</head>"
       +"<body>"
       +DemoParser.renderXHTML(wikiText)
