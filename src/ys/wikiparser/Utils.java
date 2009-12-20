@@ -236,6 +236,43 @@ public class Utils {
     return parts.toArray(a);
   }
 
+  private static final String translitTable="àaábâvãgädåe¸eæzhçzèiéyêkëlìmínîoïpðrñsòtóuôfõhöts÷chøshùschüûyúýeþyuÿyaÀAÁBÂVÃGÄDÅE¨EÆZHÇZÈIÉYÊKËLÌMÍNÎOÏPÐRÑSÒTÓUÔFÕHÖTS×CHØSHÙSCHÜÛYÚÝEÞYUßYA";
+
+  /**
+   * Translates all non-basic-latin-letters characters into latin ones for use in URLs etc.
+   * Here is the implementation for cyrillic (Russian) alphabet. Unknown characters are omitted.
+   *
+   * @param s string to be translated
+   * @return translated string
+   */
+  public static String translit(String s) {
+    if (s==null) return "";
+    StringBuilder sb=new StringBuilder(s.length()+100);
+    final int length=s.length();
+    final int translitTableLength=translitTable.length();
+
+    for (int i=0; i<length; i++) {
+      char ch=s.charAt(i);
+      //System.err.println("ch="+(int)ch);
+
+      if ((ch>='à' && ch<='ÿ') || (ch>='À' && ch<='ß') || ch=='¸' || ch=='¨') {
+        int idx=translitTable.indexOf(ch);
+        char c;
+        if (idx>=0) {
+          for (idx++; idx<translitTableLength; idx++) {
+            c=translitTable.charAt(idx);
+            if ((c>='à' && c<='ÿ') || (c>='À' && c<='ß') || c=='¸' || c=='¨') break;
+            sb.append(c);
+          }
+        }
+      }
+      else {
+        sb.append(ch);
+      }
+    }
+    return sb.toString();
+  }
+
   public static String emptyToNull(String s) { return "".equals(s)?null:s; }
   public static String noNull(String s) { return s==null?"":s; }
   public static String noNull(String s, String val) { return s==null?val:s; }

@@ -1,26 +1,21 @@
 /*
- * Copyright (c) 2007 Yaroslav Stavnichiy, yarosla@gmail.com
+ * Copyright 2007-2009 Yaroslav Stavnichiy, yarosla@gmail.com
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * Latest version of this software can be obtained from:
- *   http://web-tec.info/WikiParser/
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
-
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
+ *     http://t4-wiki-parser.googlecode.com/
  *
  * If you make use of this code, I'd appreciate hearing about it.
  * Comments, suggestions, and bug reports welcome: yarosla@gmail.com
@@ -31,6 +26,7 @@ package ys.wikiparser;
 import static ys.wikiparser.Utils.*;
 
 import java.net.*;
+import java.util.HashSet;
 
 /**
  * WikiParser.renderXHTML() is the main method of this class.
@@ -48,20 +44,28 @@ public class WikiParser {
   private int wikiLength;
   private char wikiChars[];
   protected StringBuilder sb=new StringBuilder();
+  protected StringBuilder toc=new StringBuilder();
+  protected int tocLevel=0;
+  private HashSet<String> tocAnchorIds=new HashSet<String>();
   private String wikiText;
   private int pos=0;
   private int listLevel=-1;
-  private char listLevels[]=new char[6]; // max number of levels allowed
+  private static final int MAX_LIST_LEVELS=100;
+  private char listLevels[]=new char[MAX_LIST_LEVELS+1]; // max number of levels allowed
   private boolean blockquoteBR=false;
   private boolean inTable=false;
+  private int mediawikiTableLevel=0;
+
+  protected int HEADING_LEVEL_SHIFT=1; // make =h2, ==h3, ...
+  protected String HEADING_ID_PREFIX=null;
 
   private static enum ContextType {PARAGRAPH, LIST_ITEM, TABLE_CELL, HEADER, NOWIKI_BLOCK};
 
   private static final String[] ESCAPED_INLINE_SEQUENCES= {"{{{", "{{", "}}}", "**", "//", "__", "##", "\\\\", "[[", "<<<", "~", "--", "|"};
 
-  private static final String LIST_CHARS="*-#>:";
-  private static final String[] LIST_OPEN= {"<ul><li>", "<ul><li>", "<ol><li>", "<blockquote>", "<div class='indent'>"};
-  private static final String[] LIST_CLOSE= {"</li></ul>\n", "</li></ul>\n", "</li></ol>\n", "</blockquote>\n", "</div>\n"};
+  private static final String LIST_CHARS="*-#>:!";
+  private static final String[] LIST_OPEN= {"<ul><li>", "<ul><li>", "<ol><li>", "<blockquote>", "<div class='indent'>", "<div class='center'>"};
+  private static final String[] LIST_CLOSE= {"</li></ul>\n", "</li></ul>\n", "</li></ol>\n", "</blockquote>\n", "</div>\n", "</div>\n"};
 
   private static final String FORMAT_CHARS="*/_#";
   private static final String[] FORMAT_DELIM= {"**", "//", "__", "##"};
@@ -73,7 +77,7 @@ public class WikiParser {
     return new WikiParser(wikiText).toString();
   }
 
-  protected WikiParser(String wikiText) {
+  protected void parse(String wikiText) {
     wikiText=preprocessWikiText(wikiText);
 
     this.wikiText=wikiText;
@@ -84,6 +88,19 @@ public class WikiParser {
     while (parseBlock());
 
     closeListsAndTables();
+
+    while (mediawikiTableLevel-->0) sb.append("</td></tr></table>\n");
+
+    completeTOC();
+  }
+
+  protected WikiParser() {
+    // for use by subclasses only
+    // subclasses should call parse() to complete construction
+  }
+
+  protected WikiParser(String wikiText) {
+    parse(wikiText);
   }
 
   public String toString() {
@@ -114,9 +131,32 @@ public class WikiParser {
     }
 
     if (c=='|') { // table
+      if (mediawikiTableLevel>0) {
+        int pp=pos+1;
+        if (pp<wikiLength) {
+          boolean newRow=false, endTable=false;
+          if(wikiChars[pp]=='-') { // mediawiki-table new row
+            newRow=true;
+            pp++;
+          }
+          else if(wikiChars[pp]=='}') { // mediawiki-table end table
+            endTable=true;
+            pp++;
+          }
+          for (; pp<wikiLength && (wikiChars[pp]==' ' || wikiChars[pp]=='\t'); pp++) ; // skip spaces
+          if (pp==wikiLength || wikiChars[pp]=='\n') { // nothing else on the line => it's mediawiki-table markup
+            closeListsAndTables(); // close lists if any
+            sb.append(newRow? "</td></tr>\n<tr><td>":(endTable? "</td></tr></table>\n":"</td>\n<td>"));
+            if (endTable) mediawikiTableLevel--;
+            pos=pp+1;
+            return pp<wikiLength;
+          }
+        }
+      }
+
       if (!inTable) {
         closeListsAndTables(); // close lists if any
-        sb.append("<table border='1'>");
+        sb.append("<table border=\"1\">");
         inTable=true;
       }
       pos=parseTableRow(pos+1);
@@ -129,7 +169,7 @@ public class WikiParser {
       }
     }
 
-    if (listLevel>=0 || (c=='*' || c=='-' || c=='#' || c=='>' || c==':')) { // lists
+    if (listLevel>=0 || LIST_CHARS.indexOf(c)>=0) { // lists
       int lc;
       // count list level
       for (lc=0; lc<=listLevel && pos+lc<wikiLength && wikiChars[pos+lc]==listLevels[lc]; lc++) ;
@@ -139,20 +179,23 @@ public class WikiParser {
           sb.append(LIST_CLOSE[LIST_CHARS.indexOf(listLevels[listLevel--])]);
         } while (lc<=listLevel);
         // list(s) closed => retry from the same position
+        blockquoteBR=true;
         return true;
       }
       else {
         if (pos+lc>=wikiLength) return false;
         char cc=wikiChars[pos+lc];
         int listType=LIST_CHARS.indexOf(cc);
-        if (listType>=0 && pos+lc+1<wikiLength && wikiChars[pos+lc+1]!=cc) { // new list block
+        if (listType>=0 && pos+lc+1<wikiLength && wikiChars[pos+lc+1]!=cc && listLevel<MAX_LIST_LEVELS) { // new list block
           sb.append(LIST_OPEN[listType]);
           listLevels[++listLevel]=cc;
+          blockquoteBR=true;
           pos=parseListItem(pos+lc+1);
           return true;
         }
         else if (listLevel>=0) { // list item - same level
           if (listLevels[listLevel]=='>' || listLevels[listLevel]==':') sb.append('\n');
+          else if (listLevels[listLevel]=='!') sb.append("</div>\n<div class='center'>");
           else sb.append("</li>\n<li>");
           pos=parseListItem(pos+lc);
           return true;
@@ -167,13 +210,19 @@ public class WikiParser {
       if (pos+hc>=wikiLength) return false;
       int p;
       for (p=pos+hc; p<wikiLength && (wikiChars[p]==' ' || wikiChars[p]=='\t'); p++) ; // skip spaces
-      sb.append("<h"+hc+">");
+      String tagName="h"+(hc+HEADING_LEVEL_SHIFT);
+      sb.append("<"+tagName+" id=''>"); // real id to be inserted after parsing this item
+      int hStart=sb.length();
       pos=parseItem(p, wikiText.substring(pos, pos+hc), ContextType.HEADER);
-      sb.append("</h"+hc+">\n");
+      String hText=sb.substring(hStart, sb.length());
+      sb.append("</"+tagName+">\n");
+      String anchorId=generateTOCAnchorId(hc, hText);
+      sb.insert(hStart-2, anchorId);
+      appendTOCItem(hc, anchorId, hText);
       return true;
     }
     else if (c=='{') { // nowiki-block?
-      if (pos+3<wikiLength && wikiChars[pos+1]=='{' && wikiChars[pos+2]=='{') {
+      if (pos+2<wikiLength && wikiChars[pos+1]=='{' && wikiChars[pos+2]=='{') {
         int startNowiki=pos+3;
         int endNowiki=findEndOfNowiki(startNowiki);
         int endPos=endNowiki+3;
@@ -188,6 +237,16 @@ public class WikiParser {
         }
         // else inline <nowiki> - proceed to regular paragraph handling
       }
+      else if (pos+1<wikiLength && wikiChars[pos+1]=='|') { // mediawiki-table?
+        int pp;
+        for (pp=pos+2; pp<wikiLength && (wikiChars[pp]==' ' || wikiChars[pp]=='\t'); pp++) ; // skip spaces
+        if (pp==wikiLength || wikiChars[pp]=='\n') { // yes, it's start of a table
+          sb.append("<table border=\"1\"><tr><td>");
+          mediawikiTableLevel++;
+          pos=pp+1;
+          return pp<wikiLength;
+        }
+      }
     }
     else if (c=='-' && wikiText.startsWith("----", pos)) {
       int p;
@@ -198,16 +257,24 @@ public class WikiParser {
         return true;
       }
     }
-    else if (c=='~') { // block-level escaping: '*' '-' '#' '>' ':' '|' '='
+    else if (c=='~') { // block-level escaping: '*' '-' '#' '>' ':' '!' '|' '='
       if (pos+1<wikiLength) {
         char nc=wikiChars[pos+1];
-        if (nc=='>' || nc==':' || nc=='|' || nc=='=') { // can't be inline markup
+        if (nc=='>' || nc==':' || nc=='-' || nc=='|' || nc=='=' || nc=='!') { // can't be inline markup
           pos++; // skip '~' and proceed to regular paragraph handling
           c=nc;
         }
-        else if (nc=='*' || nc=='-' || nc=='#') { // might be inline markup so need to double check
+        else if (nc=='*' || nc=='#') { // might be inline markup so need to double check
           char nnc=pos+2<wikiLength? wikiChars[pos+2]:0;
           if (nnc!=nc) {
+            pos++; // skip '~' and proceed to regular paragraph handling
+            c=nc;
+          }
+          // otherwise escaping will be done at line level
+        }
+        else if (nc=='{') { // might be inline {{{ markup so need to double check
+          char nnc=pos+2<wikiLength? wikiChars[pos+2]:0;
+          if (nnc=='|') { // mediawiki-table?
             pos++; // skip '~' and proceed to regular paragraph handling
             c=nc;
           }
@@ -336,7 +403,7 @@ public class WikiParser {
   /**
    * @param p points to first slash in suspected URI (scheme://etc)
    * @param start points to beginning of parsed item
-   * @param start points to end of parsed item
+   * @param end points to end of parsed item
    *
    * @return array of two integer offsets [begin_uri, end_uri] if matched, null otherwise
    */
@@ -348,15 +415,15 @@ public class WikiParser {
       while (pe<end && isUrlChar(wikiChars[pe])) pe++;
       URI uri=null;
       do {
-        while (pe>p+2 && ",.%;".indexOf(wikiChars[pe-1])>=0) pe--; // don't want these chars at the end of URI
+        while (pe>p+2 && ",.;:?!%)".indexOf(wikiChars[pe-1])>=0) pe--; // don't want these chars at the end of URI
         try { // verify URL syntax
           uri=new URI(wikiText.substring(pb, pe));
         }
         catch (URISyntaxException e) {
-          pe--; // try choping from the end
+          pe--; // try chopping from the end
         }
       } while (uri==null && pe>p+2);
-      if (uri!=null && uri.isAbsolute()) {
+      if (uri!=null && uri.isAbsolute() && !uri.isOpaque()) {
         int offs[]= {pb, pe};
         return offs;
       }
@@ -392,6 +459,7 @@ public class WikiParser {
         }
 
         char c=wikiChars[p];
+        boolean atLineStart=false;
 
         // context-defined break test
         if (c=='\n') {
@@ -400,29 +468,43 @@ public class WikiParser {
             throw new EndOfContextException(p);
           }
           if (p+1<end && wikiChars[p+1]=='\n') { // blank line delimits everything
-            p++; // leave one '\n' unparsed so parseBlock() can close all lists
+            p++; // eat one '\n' and leave another one unparsed so parseBlock() can close all lists
             throw new EndOfContextException(p);
           }
           for (p++; p<end && wikiChars[p]<=' ' && wikiChars[p]!='\n'; p++) ; // skip whitespace
-          if (p>=end) throw new EndOfContextException(p);
+          if (p>=end) throw new EndOfContextException(p); // end of text reached
 
           c=wikiChars[p];
+          atLineStart=true;
 
-          if (LIST_CHARS.indexOf(c)>=0) { // lists
-            if (context==ContextType.LIST_ITEM) throw new EndOfContextException(p);
-            if (p+1<end && wikiChars[p+1]!=c) throw new EndOfContextException(p);
-            // also check for ---- <hr>
-            if (wikiText.startsWith("----", p)) {
-              int pp;
-              for (pp=p+4; pp<end && (wikiChars[pp]==' ' || wikiChars[pp]=='\t'); pp++) ; // skip spaces
-              if (pp==end || wikiChars[pp]=='\n') throw new EndOfContextException(p); // yes, it's <hr>
+          if (c=='-' && wikiText.startsWith("----", p)) { // check for ---- <hr>
+            int pp;
+            for (pp=p+4; pp<end && (wikiChars[pp]==' ' || wikiChars[pp]=='\t'); pp++) ; // skip spaces
+            if (pp==end || wikiChars[pp]=='\n') throw new EndOfContextException(p); // yes, it's <hr>
+          }
+
+          if (LIST_CHARS.indexOf(c)>=0) { // start of list item?
+            if (FORMAT_CHARS.indexOf(c)<0) throw new EndOfContextException(p);
+            // here we have a list char, which also happen to be a format char
+            if (p+1<end && wikiChars[p+1]!=c) throw new EndOfContextException(p); // format chars go in pairs
+            if (/*context==ContextType.LIST_ITEM*/ listLevel>=0 && c==listLevels[0]) {
+              // c matches current list's first level, so it must be new list item
+              throw new EndOfContextException(p);
             }
+            // otherwise it must be just formatting sequence => no break of context
           }
           else if (c=='=') { // header
             throw new EndOfContextException(p);
           }
-          else if (c=='|') { // table
+          else if (c=='|') { // table or mediawiki-table
             throw new EndOfContextException(p);
+          }
+          else if (c=='{') { // mediawiki-table?
+            if (p+1<end && wikiChars[p+1]=='|') {
+              int pp;
+              for (pp=p+2; pp<end && (wikiChars[pp]==' ' || wikiChars[pp]=='\t'); pp++) ; // skip spaces
+              if (pp==end || wikiChars[pp]=='\n') throw new EndOfContextException(p); // yes, it's start of a table
+            }
           }
 
           // if none matched add '\n' to text buffer
@@ -448,9 +530,11 @@ public class WikiParser {
               if (wikiText.lastIndexOf('\n', endNowiki)>=startNowiki) { // block <pre>
                 if (wikiChars[startNowiki]=='\n') startNowiki++; // skip the very first '\n'
                 if (wikiChars[endNowiki-1]=='\n') endNowiki--; // omit the very last '\n'
+                if (context==ContextType.PARAGRAPH) sb.append("</p>"); // break the paragraph because XHTML does not allow <pre> children of <p>
                 sb.append("<pre>");
                 appendNowiki(wikiText.substring(startNowiki, endNowiki));
                 sb.append("</pre>\n");
+                if (context==ContextType.PARAGRAPH) sb.append("<p>"); // continue the paragraph
                 //if (context==ContextType.NOWIKI_BLOCK) return p; // in this context return immediately after nowiki
               }
               else { // inline <nowiki>
@@ -531,11 +615,40 @@ public class WikiParser {
           }
         }
         else if (c=='~') { // escape
-          // start line escapes are dealt with in parseBlock()
+          // most start line escapes are dealt with in parseBlock()
+          if (atLineStart) {
+            // same as block-level escaping: '*' '-' '#' '>' ':' '|' '='
+            if (p+1<end) {
+              char nc=wikiChars[p+1];
+              if (nc=='>' || nc==':' || nc=='-' || nc=='|' || nc=='=' || nc=='!') { // can't be inline markup
+                tb.append(nc);
+                p+=2; // skip '~' and nc
+                continue nextChar;
+              }
+              else if (nc=='*' || nc=='#') { // might be inline markup so need to double check
+                char nnc=p+2<end? wikiChars[p+2]:0;
+                if (nnc!=nc) {
+                  tb.append(nc);
+                  p+=2; // skip '~' and nc
+                  continue nextChar;
+                }
+                // otherwise escaping will be done at line level
+              }
+              else if (nc=='{') { // might be inline {{{ markup so need to double check
+                char nnc=p+2<end? wikiChars[p+2]:0;
+                if (nnc=='|') { // mediawiki-table?
+                  tb.append(nc);
+                  tb.append(nnc);
+                  p+=3; // skip '~', nc and nnc
+                  continue nextChar;
+                }
+                // otherwise escaping will be done as usual at line level
+              }
+            }
+          }
           for (String e: ESCAPED_INLINE_SEQUENCES) {
             if (wikiText.startsWith(e, p+1)) {
-              appendText(tb.toString()); tb.delete(0, tb.length()); // flush text buffer
-              sb.append(e);
+              tb.append(e);
               p+=1+e.length();
               continue nextChar;
             }
@@ -543,8 +656,9 @@ public class WikiParser {
         }
         else if (c=='-') { // ' -- ' => &ndash;
           if (p+2<end && wikiChars[p+1]=='-' && wikiChars[p+2]==' ' && p>start && wikiChars[p-1]==' ') {
-            appendText(tb.toString()); tb.delete(0, tb.length()); // flush text buffer
-            sb.append("&ndash; ");
+            //appendText(tb.toString()); tb.delete(0, tb.length()); // flush text buffer
+            //sb.append("&ndash; ");
+            tb.append("&ndash; "); // &ndash; = "\u2013 "
             p+=3;
             continue;
           }
@@ -560,9 +674,14 @@ public class WikiParser {
 
 
   protected void appendMacro(String text) {
-    sb.append("&lt;&lt;&lt;Macro:");
-    sb.append(escapeHTML(unescapeHTML(text)));
-    sb.append("&gt;&gt;&gt;");
+    if ("TOC".equals(text)) {
+      sb.append("<<<TOC>>>"); // put TOC placeholder for replacing it later with real TOC
+    }
+    else {
+      sb.append("&lt;&lt;&lt;Macro:");
+      sb.append(escapeHTML(unescapeHTML(text)));
+      sb.append("&gt;&gt;&gt;");
+    }
   }
 
   protected void appendLink(String text) {
@@ -573,7 +692,7 @@ public class WikiParser {
     }
     catch (URISyntaxException e) {
     }
-    if (uri!=null && uri.isAbsolute()) {
+    if (uri!=null && uri.isAbsolute() && !uri.isOpaque()) {
       sb.append("<a href=\""+escapeHTML(uri.toString())+"\" rel=\"nofollow\">");
       sb.append(escapeHTML(unescapeHTML(link.length>=2 && !isEmpty(link[1].trim())? link[1]:link[0])));
       sb.append("</a>");
@@ -593,7 +712,7 @@ public class WikiParser {
     }
     catch (URISyntaxException e) {
     }
-    if (uri!=null && uri.isAbsolute()) {
+    if (uri!=null && uri.isAbsolute() && !uri.isOpaque()) {
       String alt=escapeHTML(unescapeHTML(link.length>=2 && !isEmpty(link[1].trim())? link[1]:link[0]));
       sb.append("<img src=\""+escapeHTML(uri.toString())+"\" alt=\""+alt+"\" title=\""+alt+"\" />");
     }
@@ -606,6 +725,46 @@ public class WikiParser {
 
   protected void appendText(String text) {
     sb.append(escapeHTML(unescapeHTML(text)));
+  }
+
+  protected String generateTOCAnchorId(int hLevel, String text) {
+    int i=0;
+    String id=(HEADING_ID_PREFIX!=null?HEADING_ID_PREFIX:"H"+hLevel+"_")+translit(text.replaceAll("<.+?>", "")).trim().replaceAll("\\s+", "_").replaceAll("[^a-zA-Z0-9_-]", "");
+    while (tocAnchorIds.contains(id)) { // avoid duplicates
+      i++;
+      id=text+"_"+i;
+    }
+    tocAnchorIds.add(id);
+    return id;
+  }
+
+  protected void appendTOCItem(int level, String anchorId, String text) {
+    if (level>tocLevel) {
+      while (level>tocLevel) {
+        toc.append("<ul><li>");
+        tocLevel++;
+      }
+    }
+    else {
+      while (level<tocLevel) {
+        toc.append("</li></ul>");
+        tocLevel--;
+      }
+      toc.append("</li>\n<li>");
+    }
+    toc.append("<a href='#"+anchorId+"'>"+text+"</a>");
+  }
+
+  protected void completeTOC() {
+    while (0<tocLevel) {
+      toc.append("</li></ul>");
+      tocLevel--;
+    }
+    int idx;
+    String tocDiv="<div class='toc'>"+toc.toString()+"</div>";
+    while ((idx=sb.indexOf("<<<TOC>>>"))>=0) {
+      sb.replace(idx, idx+9, tocDiv);
+    }
   }
 
   protected void appendNowiki(String text) {
