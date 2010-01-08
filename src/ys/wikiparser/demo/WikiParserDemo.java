@@ -129,9 +129,13 @@ public class WikiParserDemo {
     StringBuffer sb=new StringBuffer();
     try {
       InputStreamReader isr=new InputStreamReader(is, encoding);
+      if ("utf-8".equalsIgnoreCase(encoding)) { // strip UTF-8 BOM
+        int bom=isr.read();
+        if (bom!=0xFEFF) sb.append((char)bom); // not BOM - append as char
+      }
       char[] cbuf=new char[4*1024];
       int len;
-      while ((len=isr.read(cbuf))>=0) sb.append(cbuf, 0, len);
+      while ((len=isr.read(cbuf))>0) sb.append(cbuf, 0, len);
       //isr.close();
       return sb.toString();
     }
@@ -171,14 +175,14 @@ public class WikiParserDemo {
 
   public static void main(String[] args) {
     if (args.length<2) {
-      System.err.println("Usage: java -jar WikiParser.jar input.txt output.htm");
+      System.err.println("Usage: java -jar WikiParser.jar input.txt output.htm\n\nNote: input file must have UTF-8 encoding.");
       return;
     }
     String wikiText=readFromFile(args[0], "utf-8");
     String htmlText="<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
       +"<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\">"
       +"<html xmlns=\"http://www.w3.org/1999/xhtml\">"
-      +"<head><title>WikiParser</title>"
+      +"<head><meta http-equiv=\"content-type\" content=\"text/html; charset=utf-8\"/><title>WikiParser</title>"
       +"<style type=\"text/css\">div.indent{margin-left:20px;} div.center{text-align:center;} blockquote{margin-left:20px;background-color:#e0e0e0;} span.underline{text-decoration:underline;}</style>"
       +"</head>"
       +"<body>"
