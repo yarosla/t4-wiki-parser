@@ -129,9 +129,9 @@ public class WikiParserDemo {
     StringBuffer sb=new StringBuffer();
     try {
       InputStreamReader isr=new InputStreamReader(is, encoding);
-      if ("utf-8".equalsIgnoreCase(encoding)) { // strip UTF-8 BOM
+      if ("utf-8".equalsIgnoreCase(encoding)) { // strip UTF-8 BOM if present
         int bom=isr.read();
-        if (bom!=0xFEFF) sb.append((char)bom); // not BOM - append as char
+        if (bom!=-1 && bom!=0xFEFF) sb.append((char)bom); // not EOF, not BOM - append as char
       }
       char[] cbuf=new char[4*1024];
       int len;
